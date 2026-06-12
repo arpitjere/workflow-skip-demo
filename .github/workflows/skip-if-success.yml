@@ -1,0 +1,136 @@
+name: Skip If SHA Already Succeeded
+
+on:
+
+  workflow_dispatch:
+
+  push:
+    branches:
+      - workflow-skip-demo
+
+jobs:
+
+  check-previous-success:
+
+    runs-on: ubuntu-latest
+
+    outputs:
+      should_skip: ${{ steps.check.outputs.should_skip }}
+
+    steps:
+
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Restore Previous Success Cache
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: .success-marker
+          key: success-${{ github.sha }}
+
+      - name: Check Previous Workflow Execution
+        id: check
+        shell: bash
+        run: |
+
+          echo "Checking SHA: ${{ github.sha }}"
+
+          if [ -f .success-marker/done.txt ]; then
+
+            echo "Workflow already succeeded for this SHA"
+
+            echo "should_skip=true" >> $GITHUB_OUTPUT
+
+          else
+
+            echo "No previous success found"
+
+            echo "should_skip=false" >> $GITHUB_OUTPUT
+
+          fi
+
+      - name: Debug Output
+        run: |
+          echo "Skip Value = [${{ steps.check.outputs.should_skip }}]"
+
+  build:
+
+    needs: check-previous-success
+
+    if: ${{ needs.check-previous-success.outputs.should_skip != 'true' }}
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Build Application
+        run: |
+
+          echo "================================"
+          echo "BUILD STARTED"
+          echo "Commit SHA: ${{ github.sha }}"
+          echo "================================"
+
+          sleep 10
+
+          echo "Build Completed Successfully"
+
+  deploy:
+
+    needs:
+      - check-previous-success
+      - build
+
+    if: ${{ needs.check-previous-success.outputs.should_skip != 'true' }}
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Deploy Application
+        run: |
+
+          echo "================================"
+          echo "DEPLOY STARTED"
+          echo "Commit SHA: ${{ github.sha }}"
+          echo "================================"
+
+          sleep 10
+
+          echo "Deployment Completed"
+
+      - name: Create Success Marker
+        run: |
+
+          mkdir -p .success-marker
+
+          echo "SUCCESS" > .success-marker/done.txt
+
+      - name: Save Success Cache
+        uses: actions/cache/save@v4
+        with:
+          path: .success-marker
+          key: success-${{ github.sha }}
+
+  skipped-job:
+
+    needs: check-previous-success
+
+    if: ${{ needs.check-previous-success.outputs.should_skip == 'true' }}
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Skip Message
+        run: |
+
+          echo "================================"
+          echo "Workflow already executed"
+          echo "Skipping Build and Deploy"
+          echo "Commit SHA: ${{ github.sha }}"
+          echo "================================"
