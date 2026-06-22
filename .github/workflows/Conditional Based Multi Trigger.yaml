@@ -1,0 +1,108 @@
+name: Conditional Based Multi Trigger
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [opened]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  skip-check:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+    steps:
+      - name: Check for prior successful run
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          BRANCH: ${{ github.head_ref }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "should_run=true" >> $GITHUB_OUTPUT
+
+            {
+              echo "## ✅ CI Pipeline — Manual Trigger"
+              echo ""
+              echo "| Field | Value |"
+              echo "|-------|-------|"
+              echo "| Trigger | \`workflow_dispatch\` |"
+              echo "| Branch | \`${{ github.ref_name }}\` |"
+              echo "| Commit SHA | \`${{ github.sha }}\` |"
+              echo "| Triggered by | \`${{ github.actor }}\` |"
+              echo ""
+              echo "> Running full pipeline — build and deploy will proceed."
+            } >> $GITHUB_STEP_SUMMARY
+
+            exit 0
+          fi
+
+          WORKFLOW_FILE=$(echo "$WORKFLOW_REF" | sed 's/.*\/\(.*\)@.*/\1/')
+
+          MATCHED=$(gh api \
+            "repos/$REPO/actions/workflows/$WORKFLOW_FILE/runs?status=success&branch=$BRANCH&per_page=20" \
+            --jq ".workflow_runs[] | select(.head_sha == \"$SHA\") | .id")
+
+          if [[ -n "$MATCHED" ]]; then
+            echo "should_run=false" >> $GITHUB_OUTPUT
+
+            # Get the first matched run ID for the summary link
+            FIRST_RUN_ID=$(echo "$MATCHED" | head -n1)
+
+            {
+              echo "## ⏭️ CI Pipeline — Skipped (Already Passed)"
+              echo ""
+              echo "This commit was already built and passed in a prior run. Skipping redundant build and deploy."
+              echo ""
+              echo "| Field | Value |"
+              echo "|-------|-------|"
+              echo "| Trigger | \`pull_request\` |"
+              echo "| Branch | \`$BRANCH\` |"
+              echo "| Commit SHA | \`$SHA\` |"
+              echo "| Triggered by | \`${{ github.actor }}\` |"
+              echo "| Prior passing run | [Run #${FIRST_RUN_ID}](https://github.com/$REPO/actions/runs/${FIRST_RUN_ID}) |"
+              echo ""
+              echo "> \`build\` and \`deploy\` jobs are skipped."
+            } >> $GITHUB_STEP_SUMMARY
+
+          else
+            echo "should_run=true" >> $GITHUB_OUTPUT
+
+            {
+              echo "## ✅ CI Pipeline — PR Trigger"
+              echo ""
+              echo "No prior successful run found for this commit. Proceeding with full pipeline."
+              echo ""
+              echo "| Field | Value |"
+              echo "|-------|-------|"
+              echo "| Trigger | \`pull_request\` |"
+              echo "| Branch | \`$BRANCH\` |"
+              echo "| Commit SHA | \`$SHA\` |"
+              echo "| Triggered by | \`${{ github.actor }}\` |"
+              echo ""
+              echo "> Running full pipeline — build and deploy will proceed."
+            } >> $GITHUB_STEP_SUMMARY
+
+          fi
+
+  build:
+    needs: skip-check
+    if: needs.skip-check.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "Built by Adithya..."
+      - run: echo "Tested by Adithya..."
+
+  deploy:
+    needs: [skip-check, build]
+    if: needs.skip-check.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Deployed by Adithya..."
