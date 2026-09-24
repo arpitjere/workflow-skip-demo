@@ -1,4 +1,4 @@
-name: Check Create and Assign 
+name: Check Create and Assign Multiple Labels
 
 on:
   issues:
@@ -12,52 +12,46 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Check and create labels
+
       - name: Check and create labels
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          LABELS: "automated triage needs-review"
         run: |
-          for LABEL_NAME in $LABELS; do
+          LABELS=("automated" "triage" "needs-review")
 
+          for LABEL_NAME in "${LABELS[@]}"; do
             echo "Checking label: $LABEL_NAME"
 
             if gh label list \
               --repo "$REPO" \
-              --search "$LABEL_NAME" \
+              --limit 100 \
               --json name \
-              --jq ".[] | select(.name == \"$LABEL_NAME\") | .name" |
-              grep -Fxq "$LABEL_NAME"; then
-
+              --jq '.[].name' | grep -Fxq "$LABEL_NAME"
+            then
               echo "Label '$LABEL_NAME' already exists."
-
             else
-
-              echo "Label '$LABEL_NAME' does not exist."
-              echo "Creating label '$LABEL_NAME'..."
+              echo "Label '$LABEL_NAME' does not exist. Creating it..."
 
               gh label create "$LABEL_NAME" \
                 --repo "$REPO" \
                 --description "Automatically created label" \
                 --color "1D76DB"
-
             fi
-
           done
 
-      # Step 2: Assign all labels to the issue
       - name: Assign labels to issue
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
-          LABELS: "automated triage needs-review"
         run: |
-          for LABEL_NAME in $LABELS; do
+          LABELS=("automated" "triage" "needs-review")
 
+          for LABEL_NAME in "${LABELS[@]}"; do
             echo "Assigning '$LABEL_NAME' to issue #$ISSUE_NUMBER"
 
             gh issue edit "$ISSUE_NUMBER" \
               --repo "$REPO" \
               --add-label "$LABEL_NAME"
+          done
